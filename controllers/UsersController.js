@@ -1,6 +1,8 @@
 const dbClient = require('../utils/db');
 const { MongoClient } = require('mongodb');
 const sha1 = require('sha1');
+const getUserByTokenId = require('./findtoken');
+const redisClient = require('../utils/redis');
 
 class UsersController {
     static async postNew(req, res) {
@@ -37,6 +39,38 @@ class UsersController {
 	} catch (error) {
 	    console.error('Error creating user', error);
 	    return res.status(500).json({ error: 'internal server error' });
+	}
+    }
+
+    static async getMe(req, res) {
+	try {
+	    const token = req.headers['x-token'];
+
+	    if (!token) {
+		return res.status(401).json({ error: 'Unauthorized token-missing' });
+	    }
+
+	    const userId = await redisClient.get(`auth_${token}`);
+
+	    if (!userId) {
+		return res.status(401).json({ error: 'Unauthorized - invalid token'});
+	    }
+
+	    const user = await getUserByTokenId(userId);
+
+	    if (!user) {
+		return res.status(401).json({ error: 'Unauthorized user' });
+	    }
+
+	    const userProfile = {
+		email: user.email,
+		id: user._id,
+	    };
+
+	    return res.status(200).json(userProfile);
+	} catch (error) {
+	    console.error('Error retrieveing user profile:', error);
+	    return res,status(500).json({ error: 'Internal server error' });
 	}
     }
 }
