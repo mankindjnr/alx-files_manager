@@ -183,5 +183,83 @@ class FilesController{
 	    return res.status(500).json({ error: 'Internal server error' });
 	}
     }
+
+    static async putPublish(req, res) {
+	try {
+	    const token = req.header('X-Token');
+
+	    if (!token) {
+		return res.status(401).json({ error: 'Unauthroized - missing token' });
+	    }
+
+	    const userId = await redisClient.get(`auth_${token}`);
+
+	    const { id } = req.params;
+
+	    const filter = {
+		_id: ObjectId(id),
+		userId: userId,
+	    };
+
+	    const update = {
+		$set: {
+		    isPublic: true,
+		},
+	    };
+
+	    const updatedFile = await dbClient.client
+		  .db()
+		  .collection('files')
+		  .findOneAndUpdate(filter, update, { returnOriginal: false });
+
+	    if (!updatedFile.value) {
+		return res.status(404).json({ error: 'Not found' });
+	    }
+
+	    return res.status(200).json(updatedFile.value);
+	} catch (error) {
+	    console.error('Error publishing file id:', error);
+	    return res.status(500).json({ error: 'Internal server error' });
+	}
+    }
+
+    static async putUnpublish(req, res) {
+	try {
+	    const token = req.header('X-Token');
+
+	    if (!token) {
+		return res.status(401).json({ error: 'Unauthorized - missing token' });
+	    }
+
+	    const userId = await redisClient.get(`auth_${token}`);
+
+	    const { id } = req.params;
+
+	    const filter = {
+		_id: ObjectId(id),
+		userId: userId,
+	    };
+
+	    const update = {
+		$set: {
+		    isPublic: false,
+		},
+	    };
+
+	    const updatedFile = await dbClient.client
+		  .db()
+		  .collection('files')
+		  .findOneAndUpdate(filter, update, { returnOriginal: false });
+
+	    if (!updatedFile.value) {
+		return res.status(404).json({ error: 'Not found' });
+	    }
+
+	    return res.status(200).json(updatedFile.value);
+	} catch (error) {
+	    console.error('Error unpublishing file by Id:', error);
+	    return res.status(500).json({ error: 'internal server error' });
+	}
+    }
 }
 module.exports = FilesController;
