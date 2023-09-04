@@ -106,5 +106,82 @@ class FilesController{
 	    return res.status(500).json({ error: 'Internal server error' });
 	}
     }
+
+    static async getShow(req, res) {
+	try {
+	    const token = req.header('X-Token');
+
+	    if (!token) {
+		return res.status(401).json({ error: 'Unauthorized - token missing' });
+	    }
+
+	    const userId = await redisClient.get(`auth_${token}`);
+
+	    if (!userId) {
+		return res.status(401).json({ error: 'Unauthorized token' });
+	    }
+
+	    const { id } = req.params;
+
+	    const file = await dbClient.client.db().collection('files').findOne({
+		_id: ObjectId(id),
+		userId: userId,
+	    });
+
+	    if (!file) {
+		return res.status(404).json({ error: 'Not Fount' });
+	    }
+
+	    return res.status(200).json(file);
+	} catch (error) {
+	    console.error('Error retrieving file by id:', error);
+	    return res.status(500).json({ error: 'Internal server error' });
+	}
+    }
+
+
+    static async getIndex(req, res) {
+	try {
+	    const token = req.header('X-Token');
+
+	    if (!token) {
+		return res.status(401).json({ error: 'Unauthorized - token missing' });
+	    }
+
+	    const userId = await redisClient.get(`auth_${token}`);
+
+	    const { parentId = '0', page = 0 } = req.query;
+
+	    const pageNumber = parseInt(page, 10);
+
+	    const itemsToSkip = pageNumber * 20;
+
+	    const pipeline = [
+		{
+		    $match: {
+			userId: userId,
+			parentId: parentId,
+		    },
+		},
+		{
+		    $skip: itemsToSkip,
+		},
+		{
+		    $limit: 20,
+		},
+	    ];
+
+	    const files = dbClient.client
+		  .db()
+		  .collection('files')
+		  .aggregate(pipeline)
+		  .toArray();
+
+	    return res.status(200).json(files);
+	} catch (error) {
+	    console.error('Error retrieving files by parentId:', error);
+	    return res.status(500).json({ error: 'Internal server error' });
+	}
+    }
 }
 module.exports = FilesController;
