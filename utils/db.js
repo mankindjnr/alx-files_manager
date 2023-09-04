@@ -37,4 +37,3 @@ const dbClient = new DBClient();
 dbClient.connect();
 
 module.exports = dbClient;
-

@@ -1,4 +1,6 @@
 const mime = require('mime-types');
+//const express = require('express');
+const multer = require('multer');
 const fs = require('fs');
 const { v4: uuidv4 } = require('uuid');
 const { ObjectId } = require('mongodb');
@@ -11,6 +13,19 @@ const storagePath = process.env.FOLDER_PATH || '/tmp/files_manager';
 if (!fs.existsSync(storagePath)) {
   fs.mkdirSync(storagePath, { recursive: true });
 }
+// Multer storage configuration
+//const storage = multer.diskStorage({
+  //destination: storagePath,
+  //filename: (req, file, cb) => {
+    //const uniqueFilename = uuidv4();
+    //cb(null, uniqueFilename);
+  //},
+//});
+
+// const upload = multer({ storage });
+
+// POST /files endpoint
+// POST /files endpoint with token validation logic included
 class FilesController {
   static async postUpload(req, res) {
     try {
@@ -97,187 +112,188 @@ class FilesController {
 
   static async getShow(req, res) {
     try {
-      const token = req.header('X-Token');
+	const token = req.header('X-Token');
 
-      if (!token) {
-        return res.status(401).json({ error: 'Unauthorized - token missing' });
-      }
+	if (!token) {
+            return res.status(401).json({ error: 'Unauthorized - token missing' });
+	}
 
-      const userId = await redisClient.get(`auth_${token}`);
+	const userId = await redisClient.get(`auth_${token}`);
+	
+	if (!userId) {
+            return res.status(401).json({ error: 'Unauthorized token' });
+	}
 
-      if (!userId) {
-        return res.status(401).json({ error: 'Unauthorized token' });
-      }
+	const { id } = req.params;
 
-      const { id } = req.params;
+	const file = await dbClient.client.db().collection('files').findOne({
+            _id: ObjectId(id),
+            userId,
+	});
 
-      const file = await dbClient.client.db().collection('files').findOne({
-        _id: ObjectId(id),
-        userId,
-      });
+	if (!file) {
+            return res.status(404).json({ error: 'Not Fount' });
+	}
 
-      if (!file) {
-        return res.status(404).json({ error: 'Not Fount' });
-      }
-
-      return res.status(200).json(file);
+	return res.status(200).json(file);
     } catch (error) {
-      console.error('Error retrieving file by id:', error);
-      return res.status(500).json({ error: 'Internal server error' });
+	console.error('Error retrieving file by id:', error);
+	return res.status(500).json({ error: 'Internal server error' });
     }
   }
 
-  static async getIndex(req, res) {
-      try {
-	  const token = req.header('X-Token');
+    static async getIndex(req, res) {
+	try {
+	    const token = req.header('X-Token');
 
-	  if (!token) {
-              return res.status(401).json({ error: 'Unauthorized - token missing' });
-	  }
-	  const userId = await redisClient.get(`auth_${token}`);
-	  const { parentId = '0', page = 0 } = req.query;
-	  const pageNumber = parseInt(page, 10);
-	  const itemsToSkip = pageNumber * 20;
-	  const pipeline = [
-              {
-		  $match: {
-		      userId,
-		      parentId,
-		  },
-              },
-              {
-		  $skip: itemsToSkip,
-              },
-              {
-		  $limit: 20,
-              },
-	  ];
+	    if (!token) {
+		return res.status(401).json({ error: 'Unauthorized - token missing' });
+	    }
 
-	  const files = dbClient.client
-		.db()
-		.collection('files')
-		.aggregate(pipeline)
-		.toArray();
-
-	  return res.status(200).json(files);
-    } catch (error) {
+	    const userId = await redisClient.get(`auth_${token}`);
+	    const { parentId = '0', page = 0 } = req.query;
+	    const pageNumber = parseInt(page, 10);
+	    const itemsToSkip = pageNumber * 20;
+	    const pipeline = [
+		{
+		    $match: {
+			userId,
+			parentId,
+		    },
+		},
+		{
+		    $skip: itemsToSkip,
+		},
+		{
+		    $limit: 20,
+		},
+	    ];
+	    
+	    const files = dbClient.client
+		  .db()
+		  .collection('files')
+		  .aggregate(pipeline)
+		  .toArray();
+	    
+	    return res.status(200).json(files);
+	} catch (error) {
 	    console.error('Error retrieving files by parentId:', error);
 	    return res.status(500).json({ error: 'Internal server error' });
+	}
     }
-  }
-
-  static async putPublish(req, res) {
-    try {
+    
+    static async putPublish(req, res) {
+	try {
 	    const token = req.header('X-Token');
-
+	    
 	    if (!token) {
-        return res.status(401).json({ error: 'Unauthroized - missing token' });
+		return res.status(401).json({ error: 'Unauthroized - missing token' });
 	    }
-
+	    
 	    const userId = await redisClient.get(`auth_${token}`);
-
+	    
 	    const { id } = req.params;
-
+	    
 	    const filter = {
-        _id: ObjectId(id),
-        userId,
+		_id: ObjectId(id),
+		userId,
 	    };
-
+	    
 	    const update = {
-        $set: {
+		$set: {
 		    isPublic: true,
-        },
+		},
 	    };
-
+	    
 	    const updatedFile = await dbClient.client
 		  .db()
 		  .collection('files')
 		  .findOneAndUpdate(filter, update, { returnOriginal: false });
-
+	    
 	    if (!updatedFile.value) {
-        return res.status(404).json({ error: 'Not found' });
+		return res.status(404).json({ error: 'Not found' });
 	    }
-
+	    
 	    return res.status(200).json(updatedFile.value);
-    } catch (error) {
+	} catch (error) {
 	    console.error('Error publishing file id:', error);
 	    return res.status(500).json({ error: 'Internal server error' });
+	}
     }
-  }
-
-  static async putUnpublish(req, res) {
-    try {
+    
+    static async putUnpublish(req, res) {
+	try {
 	    const token = req.header('X-Token');
-
+	    
 	    if (!token) {
-        return res.status(401).json({ error: 'Unauthorized - missing token' });
+		return res.status(401).json({ error: 'Unauthorized - missing token' });
 	    }
-
+	    
 	    const userId = await redisClient.get(`auth_${token}`);
-
+	    
 	    const { id } = req.params;
-
+	    
 	    const filter = {
-        _id: ObjectId(id),
-        userId,
+		_id: ObjectId(id),
+		userId,
 	    };
-
+	    
 	    const update = {
-        $set: {
+		$set: {
 		    isPublic: false,
-        },
+		},
 	    };
-
+	    
 	    const updatedFile = await dbClient.client
 		  .db()
 		  .collection('files')
 		  .findOneAndUpdate(filter, update, { returnOriginal: false });
-
+	    
 	    if (!updatedFile.value) {
-        return res.status(404).json({ error: 'Not found' });
+		return res.status(404).json({ error: 'Not found' });
 	    }
-
+	    
 	    return res.status(200).json(updatedFile.value);
-    } catch (error) {
+	} catch (error) {
 	    console.error('Error unpublishing file by Id:', error);
 	    return res.status(500).json({ error: 'internal server error' });
+	}
     }
-  }
-
-  static async getFile(req, res) {
-    try {
+    
+    static async getFile(req, res) {
+	try {
 	    const { id } = req.params;
-
+	    
 	    const file = await dbClient.client
 		  .db()
 		  .collection('files')
 		  .findOne({ _id: ObjectId(id) });
-
+	    
 	    if (!file) {
-        return res.status(404).json({ error: 'Not found' });
+		return res.status(404).json({ error: 'Not found' });
 	    }
-
+	    
 	    if (!file.isPublic && (!req.user || req.user.id !== file.userId)) {
-        return res.status(404).json({ error: 'Not found' });
+		return res.status(404).json({ error: 'Not found' });
 	    }
-
+	    
 	    if (file.type === 'folder') {
-        return res.status(400).json({ error: "A folder doesn't have content" });
+		return res.status(400).json({ error: "A folder doesn't have content" });
 	    }
-
+	    
 	    const mimeType = mime.lookup(file.name);
-
+	    
 	    if (!mimeType) {
-        return res.status(500).json({ error: 'Unknown MIME type' });
+		return res.status(500).json({ error: 'Unknown MIME type' });
 	    }
-
+	    
 	    res.set('Content-Type', mimeType);
 	    return res.send(file.data);
-    } catch (error) {
+	} catch (error) {
 	    console.error('Error retrieving file data by Id:', error);
 	    return res.status(500).json({ error: 'internal server error' });
+	}
     }
-  }
 }
 
 module.exports = FilesController;

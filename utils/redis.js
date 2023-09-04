@@ -1,64 +1,52 @@
 import redis from 'redis';
+
 const { promisify } = require('util');
 
 class RedisClient {
-    constructor() {
-	this.client = redis.createClient();
+  constructor() {
+    this.client = redis.createClient();
 
-	this.client.on('connect', () => {
-	    this.isConnected = true;
-	});
+    this.client.on('connect', () => {
+      this.isConnected = true;
+    });
 
-	this.client.on('error', (err) => {
-	    console.error('Redis client error:', err);
-	    this.isConnected = false;
-	});
-	
-	this.getAsync = promisify(this.client.get).bind(this.client);
-	this.setAsync = promisify(this.client.set).bind(this.client);
-	this.expireAsync = promisify(this.client.expire).bind(this.client);
-	this.delAsync = promisify(this.client.del).bind(this.client);
-    }
-    
+    this.client.on('error', (err) => {
+      console.error('Redis client error:', err);
+      this.isConnected = false;
+    });
 
-    isAlive() {
-        return this.isConnected || false
-    }
+    this.getAsync = promisify(this.client.get).bind(this.client);
+    this.setAsync = promisify(this.client.set).bind(this.client);
+    this.expireAsync = promisify(this.client.expire).bind(this.client);
+    this.delAsync = promisify(this.client.del).bind(this.client);
+  }
 
-    // get method
-    async get(key) {
-	try {
-	    const value = await this.getAsync(key);
-	    return value;
-	} catch (error) {
-	    throw error;
-	}
-    }
+  isAlive() {
+    return this.isConnected || false;
+  }
 
-    async set(key, value, duration) {
-	try {
-	    await this.setAsync(key, value);
+  // get method
+  async get(key) {
+    const value = await this.getAsync(key);
+    return value;
+  }
 
-	    if (duration) {
-		await this.expireAsync(key, duration);
-	    }
+  async set(key, value, duration) {
+    await this.setAsync(key, value);
 
-	    return true;
-	} catch (error) {
-	    throw error;
-	}
+    if (duration) {
+      await this.expireAsync(key, duration);
     }
 
-    async del(key) {
-	try {
-	    const deleted = await this.delAsync(key);
-	    return deleted > 0;
-	} catch (error) {
-	    throw error;
-	}
-    }
+    return true;
+  }
 
-    //this.client.quit();
+  async del(key) {
+    const deleted = await this.delAsync(key);
+    return deleted > 0;
+  }
+
+  // this.client.quit();
 }
 
 const redisClient = new RedisClient();

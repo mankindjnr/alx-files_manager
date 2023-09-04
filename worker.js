@@ -1,6 +1,7 @@
 const Bull = require('bull');
-const dbClient = require('./utils/db'); // Import your database client
 const imageThumbnail = require('image-thumbnail');
+const fs = require('fs');
+const dbClient = require('./utils/db'); // Import your database client
 
 const fileQueue = new Bull('fileQueue');
 
