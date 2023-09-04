@@ -1,3 +1,4 @@
+const mime = require('mime-types');
 const express = require('express');
 const multer = require('multer');
 const fs = require('fs');
@@ -261,5 +262,42 @@ class FilesController{
 	    return res.status(500).json({ error: 'internal server error' });
 	}
     }
+
+    static async getFile(req, res) {
+	try {
+	    const { id } = req.params;
+
+	    const file = await dbClient.client
+		  .db()
+		  .collection('files')
+		  .findOne({ _id: ObjectId(id) });
+
+	    if (!file) {
+		return res.status(404).json({ error: 'Not found' });
+	    }
+
+	    if (!file.isPublic && (!req.user || req.user.id !== file.userId)) {
+		return res.status(404).json({ error: 'Not found' });
+	    }
+
+	    if (file.type === 'folder') {
+		return res.status(400).json({ error: "A folder doesn't have content" });
+	    }
+
+	    const mimeType = mime.lookup(file.name);
+
+	    if (!mimeType) {
+
+		return res.status(500).json({ error: 'Unknown MIME type' });
+	    }
+
+	    res.set('Content-Type', mimeType);
+	    return res.send(file.data);
+	} catch (error) {
+	    console.error('Error retrieving file data by Id:', error);
+	    return res.status(500).json({ error: 'internal server error' });
+	}
+    }
 }
+
 module.exports = FilesController;
