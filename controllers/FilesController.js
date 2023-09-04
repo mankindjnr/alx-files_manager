@@ -1,88 +1,110 @@
+const express = require('express');
+const multer = require('multer');
 const fs = require('fs');
-const path = require('path');
 const { v4: uuidv4 } = require('uuid');
-const { validationResult } = require('express-validator');
+const { ObjectId } = require('mongodb');
 const dbClient = require('../utils/db');
 const redisClient = require('../utils/redis');
-const FOLDER_PATH = process.env.FOLDER_PATH || '/tmp/files_manager';
 
-class FilesController {
-    async createFile(req, res) {
-        try {
-            // Check if there are any validation errors
-            const errors = validationResult(req);
-            if (!errors.isEmpty()) {
-                return res.status(400).json({ errors: errors.array() });
-            }
+const router = express.Router();
+const storagePath = process.env.FOLDER_PATH || '/tmp/files_manager';
 
-            // Retrieve the user based on the token
-            const token = req.headers['x-token'];
+if (!fs.existsSync(storagePath)) {
+    fs.mkdirSync(storagePath, { recursive: true });
+}
+// Multer storage configuration
+const storage = multer.diskStorage({
+  destination: storagePath,
+  filename: (req, file, cb) => {
+    const uniqueFilename = uuidv4();
+    cb(null, uniqueFilename);
+  },
+});
 
+const upload = multer({ storage });
+
+// POST /files endpoint
+// POST /files endpoint with token validation logic included
+class FilesController{
+    static async postUpload(req, res) {
+	try {
+	    // Extract the token from the request header
+	    const token = req.header('X-Token');
+
+	    // Your token validation logic here
+	    if (!token) {
+		return res.status(401).json({ error: 'Unauthorized' });
+	    }
+
+	    // Verify the token (you need to implement this part)
+	    // If the token is valid, extract the user ID from it
 	    const userId = await redisClient.get(`auth_${token}`);
 
 	    if (!userId) {
-		return res.status(401).json({ error: 'nauthorized' });
+		return res.status(401).json({ error: 'Unauthorized' });
+	    }
+
+	    console.log(userId);
+	    // Check for other request parameters (name, type, parentId, isPublic)
+	    const { name, type, parentId, data, isPublic } = req.body;
+
+	    // Check for missing name and type
+	    if (!name) {
+		return res.status(400).json({ error: 'Missing name' });
 	    }
 	    
-            const user = await getUserByTokenId(userId);
+	    if (!type || !['folder', 'file', 'image'].includes(type)) {
+		return res.status(400).json({ error: 'Missing type or invalid type' });
+	    }
 
+	    if (type !== 'folder' && !req.body.data) {
+		return res.status(400).json({ error: 'Missing data' });
+	    }
 
-            if (!user) {
-                return res.status(401).json({ error: 'Unauthorized' });
-            }
+	    // Prepare the new file document
+	    const newFile = {
+		userId,
+		name,
+		type,
+		isPublic: !!isPublic,
+		parentId: parentId || '0', // Default to 0 if parentId is not provided
+	    };
 
-            const { name, type, parentId = 0, isPublic = false, data } = req.body;
+	    if (type === 'file' || type === 'image') {
+		newFile.data = req.body.data;
+	    }
 
-            // Validate required fields
-            if (!name) {
-                return res.status(400).json({ error: 'Missing name' });
-            }
+	    if (type === "folder") {
+		const result = await dbClient.client.db().collection('files').insertOne(newFile);
+		return res.status(201).json(result.ops[0]);
+	    }
 
-            if (!type || !['folder', 'file', 'image'].includes(type)) {
-                return res.status(400).json({ error: 'Missing type or invalid type' });
-            }
+	    // If it's a file or image, store it locally and set localPath
+	    if (type === 'file' || type === 'image') {
+		const { data } = req.body;
+		if (!data) {
+		    return res.status(400).json({ error: "Missing data" });
+		}
+		const fileData = Buffer.from(data, 'base64');
 
-            if (type !== 'folder' && !data) {
-                return res.status(400).json({ error: 'Missing data' });
-            }
+		const uniqueFilename = uuidv4();
+		
+		const localPath = `${storagePath}/${uniqueFilename}`;
 
-            // Validate parentId and ensure it's a folder
-            if (parentId !== 0) {
-                const parentFile = await dbClient.nbFiles.findOne({ _id: parentId, type: 'folder' });
-                if (!parentFile) {
-                    return res.status(400).json({ error: 'Parent not found or not a folder' });
-                }
-            }
+		fs.writeFileSync(localPath, fileData);
+		
+		newFile.localPath = localPath;
+	    }
 
-            // Save the file to disk
-            const fileDirectory = path.join(FOLDER_PATH, uuidv4());
-            const fileAbsolutePath = path.join(fileDirectory, name);
-
-            if (type !== 'folder') {
-                // Decode Base64 data and save to disk
-                const fileDataBuffer = Buffer.from(data, 'base64');
-                fs.mkdirSync(fileDirectory, { recursive: true });
-                fs.writeFileSync(fileAbsolutePath, fileDataBuffer);
-            }
-
-            // Create a new file document in the database
-            const newFile = new FileModel({
-                userId: user._id,
-                name,
-                type,
-                isPublic,
-                parentId,
-                localPath: type === 'folder' ? null : fileAbsolutePath,
-            });
-
-            await newFile.save();
-
-            return res.status(201).json(newFile);
-        } catch (error) {
-            console.error('Error creating file:', error);
-            return res.status(500).json({ error: 'Internal Server Error' });
-        }
+	    // Insert the new file document into the collection
+	    const result = await dbClient.client.db().collection('files').insertOne(newFile);
+	    
+	    // Return the new file document with a status code 201
+	    return res.status(201).json(result.ops[0]);
+	} catch (error) {
+	    console.error('Error creating file:', error);
+	    return res.status(500).json({ error: 'Internal server error' });
+	}
     }
 }
-
-module.exports = new FilesController();
+module.exports = FilesController;
